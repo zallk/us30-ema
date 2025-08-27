@@ -1,0 +1,63 @@
+//@version=5
+indicator("US30 EMA Touch Alerts 20/25/70 — Zayed", overlay=true, shorttitle="EMA Touch Alerts Zayed")
+
+// ——— Inputs ———
+src         = input.source(close, "Source")
+ema20Len    = input.int(20,  "EMA #1 length", minval=1)
+ema25Len    = input.int(25,  "EMA #2 length", minval=1)
+ema70Len    = input.int(70,  "EMA #3 length", minval=1)
+
+alertOn20   = input.bool(true,  "Alert on EMA 20 touch")
+alertOn25   = input.bool(true,  "Alert on EMA 25 touch")
+alertOn70   = input.bool(true,  "Alert on EMA 70 touch")
+
+mode        = input.string("Touch (wick hits EMA)", "Signal mode", options=["Touch (wick hits EMA)", "Cross (close crosses EMA)"])
+showEMAs    = input.bool(true, "Plot EMAs on chart")
+
+// ——— EMAs ———
+ema20 = ta.ema(src, ema20Len)
+ema25 = ta.ema(src, ema25Len)
+ema70 = ta.ema(src, ema70Len)
+
+// ——— Plot ———
+plot(showEMAs ? ema20 : na, color=color.new(color.teal, 0),  linewidth=2, title="EMA 20")
+plot(showEMAs ? ema25 : na, color=color.new(color.orange, 0),linewidth=2, title="EMA 25")
+plot(showEMAs ? ema70 : na, color=color.new(color.purple, 0),linewidth=2, title="EMA 70")
+
+// ——— Touch / Cross logic ———
+touch(ema) => high >= ema and low <= ema
+cross(ema) => ta.cross(close, ema)
+
+sig20 = (mode == "Touch (wick hits EMA)" ? touch(ema20) : cross(ema20)) and alertOn20
+sig25 = (mode == "Touch (wick hits EMA)" ? touch(ema25) : cross(ema25)) and alertOn25
+sig70 = (mode == "Touch (wick hits EMA)" ? touch(ema70) : cross(ema70)) and alertOn70
+
+// Directional hint (pullback into trend)
+dirLabel(ema) =>
+    close > ema ? "BUY pullback" : "SELL pullback"
+
+mkMsg(emaLen, emaVal) =>
+    // Compose a compact alert text
+    syminfo.ticker + " | TF: " + timeframe.period + " | " +
+    dirLabel(emaVal) + " @ EMA " + str.tostring(emaLen) + 
+    " | Price: " + str.tostring(close, format.mintick)
+
+// ——— Alertconditions for users who prefer selecting specific ones ———
+alertcondition(sig20 and barstate.isconfirmed, title="Touch/Cross EMA 20", message="EMA20")
+alertcondition(sig25 and barstate.isconfirmed, title="Touch/Cross EMA 25", message="EMA25")
+alertcondition(sig70 and barstate.isconfirmed, title="Touch/Cross EMA 70", message="EMA70")
+
+// ——— Single consolidated alert() so you can use 'Any alert() function call' ———
+if barstate.isconfirmed
+    if sig20
+        alert(mkMsg(20, ema20), alert.freq_once_per_bar_close)
+    if sig25
+        alert(mkMsg(25, ema25), alert.freq_once_per_bar_close)
+    if sig70
+        alert(mkMsg(70, ema70), alert.freq_once_per_bar_close)
+
+// ——— Notes ———
+// 1) Apply this script to THINKMARKETS:US30 on TradingView.
+// 2) When creating the alert, choose: 'Any alert() function call' + 'Once per bar close' for clean signals.
+// 3) Add it separately on each timeframe you care about (15m, 30m, 1h, 2h, 4h, 1D) and make one alert per TF.
+// 4) 'Touch' means the bar’s wick/high-low range hits the EMA; 'Cross' uses close crossing the EMA.

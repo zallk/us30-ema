@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>US30 EMA Alerts — لوحة زيد</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/192.png">
+  <style>
+    body{font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, 'Noto Sans', 'Hiragino Sans', sans-serif; margin:0; background:#0b1220; color:#e8eef8;}
+    header{padding:18px 16px; background:#0f1a2b; position:sticky; top:0; z-index:10; border-bottom:1px solid #1e3355;}
+    h1{font-size:20px; margin:0;}
+    .sub{opacity:.8; font-size:12px;}
+    main{padding:18px 16px 80px;}
+    .card{background:#111b2e; border:1px solid #1e3355; border-radius:14px; padding:16px; margin-bottom:14px;}
+    .btn{display:inline-block; padding:12px 14px; border-radius:10px; background:#0b6bcb; color:#fff; text-decoration:none; font-weight:600;}
+    .btn:active{transform:translateY(1px);}
+    .grid{display:grid; gap:10px; grid-template-columns:repeat(2,1fr);}
+    .kv{display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px dashed #27426e;}
+    .kv:last-child{border-bottom:none;}
+    .muted{opacity:.75}
+    .row{display:flex; gap:10px; flex-wrap:wrap;}
+    .ok{color:#A5FF89;}
+    .warn{color:#FFD479;}
+    footer{position:fixed; bottom:0; left:0; right:0; background:#0f1a2b; border-top:1px solid #1e3355; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px;}
+    input[type="text"]{width:100%; padding:12px; border-radius:10px; border:1px solid #1e3355; background:#0b1220; color:#e8eef8;}
+    .small{font-size:12px; opacity:.8;}
+  </style>
+</head>
+<body>
+<header>
+  <h1>US30 EMA Alerts</h1>
+  <div class="sub">لوحة سريعة مع روابط وتنبيهات محلية (عند فتح الصفحة)</div>
+</header>
+<main>
+  <section class="card">
+    <h3>الخطوة (1): أضف المؤشر في TradingView</h3>
+    <p class="small">استخدم ملف Pine Script المرفق: <strong>US30_EMA_Touch_Alerts_Zayed.pine</strong> على رمز <strong>THINKMARKETS:US30</strong> ثم أنشئ تنبيهًا بنمط <em>Any alert() function call</em> و <em>Once per bar close</em>. كرّر ذلك على الفريمات: <b>15m</b>, <b>30m</b>, <b>1h</b>, <b>2h</b>, <b>4h</b>, <b>1D</b>.</p>
+    <div class="row">
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=15">افتح 15m</a>
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=30">افتح 30m</a>
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=60">افتح 1h</a>
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=120">افتح 2h</a>
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=240">افتح 4h</a>
+      <a class="btn" target="_blank" href="https://www.tradingview.com/chart/?symbol=THINKMARKETS%3AUS30&interval=D">افتح 1D</a>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>الخطوة (2): أضِف الصفحة إلى شاشة الآيفون</h3>
+    <ol class="small">
+      <li>افتح هذه الصفحة في Safari.</li>
+      <li>اضغط <b>Share</b> ثم اختر <b>Add to Home Screen</b>.</li>
+      <li>اسمّها: <b>US30 EMA</b> ثم اضغط <b>Add</b>.</li>
+    </ol>
+    <p class="small muted">تنبيه: تنبيهات البوش الحقيقية تتطلب خادمًا (Web Push). هذه الصفحة تُظهر تنبيهات محلية وصوت/اهتزاز أثناء فتحها. للحصول على Push حتى وهي مغلقة، فعّل التنبيهات من TradingView مباشرة بعد إنشاء الـ Alerts.</p>
+  </section>
+
+  <section class="card">
+    <h3>تنبيه محلي تجريبي</h3>
+    <p class="small">يمكنك تجربة إشعار محلي وصوت أثناء فتح الصفحة:</p>
+    <div class="row">
+      <button class="btn" id="testNotify">تنبيه تجريبي</button>
+      <button class="btn" id="beep">صوت</button>
+      <button class="btn" id="vibrate">اهتزاز</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>حالة الفريمات</h3>
+    <div id="status" class="grid"></div>
+    <p class="small muted">هذه الحالة يدوية (تذكيرية). التنبيهات الفعلية تصل من تطبيق TradingView حسب المؤشر.</p>
+  </section>
+</main>
+
+<footer>
+  <span class="small">جاهز • EMA 20/25/70</span>
+  <a class="btn" id="installBtn" style="display:none">تثبيت</a>
+</footer>
+
+<script>
+// Install prompt for some browsers
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBtn').style.display = 'inline-block';
+});
+
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    document.getElementById('installBtn').style.display = 'none';
+  }
+});
+
+// Service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js');
+}
+
+// Local demo notifications (only while app is open)
+document.getElementById('testNotify').addEventListener('click', async () => {
+  try {
+    if (window.Notification && Notification.requestPermission) {
+      const p = await Notification.requestPermission();
+      if (p === 'granted') new Notification('US30 EMA — تنبيه تجريبي', { body: 'هذا مثال أثناء فتح الصفحة.' });
+    } else {
+      alert('تم!');
+    }
+  } catch(e){ alert('تم!'); }
+});
+
+document.getElementById('beep').addEventListener('click', () => {
+  const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=');
+  a.play();
+});
+document.getElementById('vibrate').addEventListener('click', () => {
+  if (navigator.vibrate) navigator.vibrate([80,40,80]);
+});
+
+// Manual status grid
+const tfs = ['15m','30m','1h','2h','4h','1D'];
+const grid = document.getElementById('status');
+tfs.forEach(tf => {
+  const wrap = document.createElement('div');
+  wrap.className = 'kv';
+  const label = document.createElement('div');
+  label.textContent = tf;
+  const btn = document.createElement('a');
+  btn.href = '#';
+  btn.className = 'btn';
+  btn.textContent = 'تم التفعيل يدوياً';
+  btn.onclick = (e) => { e.preventDefault(); btn.textContent = 'OK'; btn.classList.add('ok'); };
+  wrap.appendChild(label); wrap.appendChild(btn); grid.appendChild(wrap);
+});
+</script>
+</body>
+</html>
