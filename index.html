@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>US30 / DJI — EMA Touch Logger</title>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root { --bg:#0b0b0b; --panel:#141414; --txt:#fff; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,Helvetica,sans-serif}
+    header{background:var(--panel);padding:12px 16px;font-weight:700;text-align:center}
+    .wrap{max-width:1200px;margin:0 auto;padding:10px}
+    .topbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;margin:8px 0}
+    select,button,input{background:#0b6bcb;border:0;color:#fff;padding:8px 12px;border-radius:6px;font-weight:700}
+    select{appearance:none}
+    button:hover{background:#0d84f2;cursor:pointer}
+    #chart{height:78vh;width:100%} /* شارت كبير جداً */
+    .meta{display:flex;gap:10px;justify-content:center;align-items:center;margin-top:6px;font-size:12px;opacity:.85}
+    .log{background:var(--panel);border-radius:8px;margin-top:12px;padding:10px}
+    .log h3{margin:0 0 8px 0;font-size:16px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:8px;border-bottom:1px solid #222;text-align:right}
+    th{color:#bdbdbd}
+    .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-weight:700}
+    .y{background:#FFD11A;color:#000} /* EMA20 */
+    .o{background:#FF8C1A;color:#000} /* EMA25 */
+    .b{background:#2E6BFF;color:#fff} /* EMA70 */
+    .note{font-size:12px;opacity:.8}
+    .tag{background:#222;padding:4px 8px;border-radius:6px}
+    a, a:visited{color:#7bb7ff}
+  </style>
+</head>
+<body>
+  <header>📊 US30 / DJI — تسجيل ملامسة السعر لخطوط EMA 20/25/70 على جميع الفريمات</header>
+
+  <div class="wrap">
+    <div class="topbar">
+      <label>الفريم المعروض:</label>
+      <select id="tfSelect">
+        <option value="15m">15m</option>
+        <option value="30m">30m</option>
+        <option value="60m" selected>1h</option>
+        <option value="120m">2h</option>
+        <option value="240m">4h</option>
+        <option value="1d">1D</option>
+      </select>
+
+      <button id="refreshBtn">🔄 تحديث الآن</button>
+
+      <span class="tag">هامش التلامس: <span id="marginPct">0.10%</span></span>
+      <span class="note">المصدر المجاني: Yahoo Finance (الرمز ^DJI)</span>
+    </div>
+
+    <div id="chart"></div>
+
+    <div class="meta">
+      <span>آخر تحديث: <strong id="lastUpdated">—</strong></span>
+      <span>التحديث التلقائي: كل 24 ساعة</span>
+    </div>
+
+    <div class="log">
+      <h3>السجل — ملامسة السعر لخطوط EMA (كل الفريمات)</h3>
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>الحدث</th>
+            <th>السعر</th>
+            <th>الفريم</th>
+            <th>الوقت</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <!-- السجلات تضاف هنا -->
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note">
+      ملاحظة: إذا أردت الرمز نفسه الخاص بمنصّة ThinkMarkets:US30 بدلاً من ^DJI، نقدر نوصله لاحقًا عبر TradingView Alerts/Webhook أو API مدفوع.
+    </p>
+  </div>
+
+  <script>
+    // ========= إعدادات عامة =========
+    const VIEW_TFS = ['15m','30m','60m','120m','240m','1d']; // الفريمات المسجلة
+    const TOUCH_MARGIN = 0.001; // 0.1% هامش فوق/تحت الشمعة
+    document.getElementById('marginPct').textContent = (TOUCH_MARGIN*100).toFixed(2)+'%';
+
+    // ========= أدوات مساعدة =========
+    const fmtTs = ts => {
+      const d = new Date(ts*1000);
+      const p = n => n.toString().padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const nowLocal = () => {
+      const d = new Date(); const p = n=>n.toString().padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+
+    function ema(arr, len){
+      const k = 2/(len+1);
+      const out = []; let prev;
+      for (let i=0;i<arr.length;i++){
+        const v = arr[i]; if (v==null){ out.push(null); continue; }
+        if (prev==null){
+          const start = Math.max(0, i-len+1);
+          const slice = arr.slice(start, i+1).filter(x=>x!=null);
+          if (slice.length < len){ out.push(null); continue; }
+          prev = slice.reduce((a,b)=>a+b,0)/slice.length;
+        }
+        const cur = v*k + prev*(1-k);
+        out.push(cur); prev = cur;
+      }
+      return out;
+    }
+
+    function aggregate(candles, group){
+      const out = [];
+      for (let i=0;i<candles.length;i+=group){
+        const ch = candles.slice(i,i+group);
+        if (ch.length < group) continue;
+        out.push({
+          time: ch[ch.length-1].time,
+          open: ch[0].open,
+          close: ch[ch.length-1].close,
+          high: Math.max(...ch.map(x=>x.high)),
+          low:  Math.min(...ch.map(x=>x.low)),
+        });
+      }
+      return out;
+    }
+
+    async function fetchYahoo(range, interval){
+      const cacheBust = Math.floor(Date.now()/60000); // دقيقية لتجاوز الكاش
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cacheBust}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('Yahoo fetch failed');
+      const j = await r.json();
+      const res = j.chart.result?.[0];
+      const t = res.timestamp;
+      const q = res.indicators.quote[0];
+      const candles = [];
+      for (let i=0;i<t.length;i++){
+        if (q.open[i]==null||q.high[i]==null||q.low[i]==null||q.close[i]==null) continue;
+        candles.push({ time:t[i], open:q.open[i], high:q.high[i], low:q.low[i], close:q.close[i] });
+      }
+      return candles;
+    }
+
+    // ========= السجل =========
+    const seen = new Set();
+    function addLogRow(type, price, tf, ts){
+      const key = `${type}-${tf}-${ts}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const tr = document.createElement('tr');
+      const cls = type==='EMA20' ? 'y' : (type==='EMA25' ? 'o' : 'b');
+      tr.innerHTML = `
+        <td><span class="badge ${cls}">${type}</span> لمس</td>
+        <td>${Number(price).toFixed(2)}</td>
+        <td>${tf}</td>
+        <td>${fmtTs(ts)}</td>
+      `;
+      document.getElementById('logBody').prepend(tr);
+    }
+
+    // ========= فحص اللمس بهامش =========
+    function checkTouch(k, emaVal, type, tf){
+      if (!emaVal) return;
+      const margin = k.close * TOUCH_MARGIN;
+      if ((k.low - margin) <= emaVal && emaVal <= (k.high + margin)){
+        addLogRow(type, k.close, tf, k.time);
+      }
+    }
+
+    // ========= معالجة فريم معيّن =========
+    async function processTF(tf){
+      let candles;
+      if (tf==='15m')      candles = await fetchYahoo('5d','15m');
+      else if (tf==='30m') candles = await fetchYahoo('5d','30m');
+      else if (tf==='60m') candles = await fetchYahoo('1mo','60m');
+      else if (tf==='120m'){ const base = await fetchYahoo('1mo','30m'); candles = aggregate(base,4); }
+      else if (tf==='240m'){ const base = await fetchYahoo('3mo','30m'); candles = aggregate(base,8); }
+      else if (tf==='1d')  candles = await fetchYahoo('6mo','1d');
+      else return null;
+
+      const closes = candles.map(k=>k.close);
+      const e20 = ema(closes,20), e25 = ema(closes,25), e70 = ema(closes,70);
+
+      // تسجيل اللمسات
+      for (let i=0;i<candles.length;i++){
+        const k = candles[i];
+        checkTouch(k, e20[i], 'EMA20', tf);
+        checkTouch(k, e25[i], 'EMA25', tf);
+        checkTouch(k, e70[i], 'EMA70', tf);
+      }
+      return {candles,e20,e25,e70};
+    }
+
+    // ========= الشارت =========
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: { background: { color: '#0b0b0b' }, textColor: '#FFFFFF' },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, rightOffset: 8, barSpacing: 8 },
+      grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } }
+    });
+    const cs = chart.addCandlestickSeries();
+    const s20 = chart.addLineSeries({ color:'#FFD11A', lineWidth:2 });
+    const s25 = chart.addLineSeries({ color:'#FF8C1A', lineWidth:2 });
+    const s70 = chart.addLineSeries({ color:'#2E6BFF', lineWidth:3 });
+
+    async function renderChart(tf){
+      const data = await processTF(tf);
+      if (!data) return;
+      const { candles, e20, e25, e70 } = data;
+
+      cs.setData(candles.map(k=>({time:k.time,open:k.open,high:k.high,low:k.low,close:k.close})));
+      s20.setData(candles.map((k,i)=> e20[i]?({time:k.time,value:e20[i]}):null).filter(Boolean));
+      s25.setData(candles.map((k,i)=> e25[i]?({time:k.time,value:e25[i]}):null).filter(Boolean));
+      s70.setData(candles.map((k,i)=> e70[i]?({time:k.time,value:e70[i]}):null).filter(Boolean));
+    }
+
+    // ========= التشغيل والتحديث =========
+    const tfSelect = document.getElementById('tfSelect');
+    document.getElementById('refreshBtn').onclick = runAll;
+    tfSelect.onchange = () => renderChart(tfSelect.value);
+
+    async function runAll(){
+      // سجّل لكل الفريمات
+      for (const tf of VIEW_TFS){ await processTF(tf); }
+      // اعرض الفريم المختار
+      await renderChart(tfSelect.value);
+      document.getElementById('lastUpdated').textContent = nowLocal();
+    }
+
+    runAll();                         // أول تشغيل
+    setInterval(runAll, 86400000);    // كل 24 ساعة
+  </script>
+</body>
+</html>
