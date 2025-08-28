@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>شارت مباشر — US30 (ThinkMarkets) + تسجيل لحظي لملامسات EMA 20/25/70</title>
+
+<!-- Lightweight Charts CDN -->
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+
+<style>
+  :root{
+    --bg:#0b0b0b; --panel:#141414; --text:#eaeaea; --muted:#9aa0a6;
+    --accent:#0d84f2; --good:#00c853; --bad:#ff5252;
+    --ema20:#ffd400; /* أصفر */
+    --ema25:#ff9800; /* برتقالي */
+    --ema70:#2d6bff; /* أزرق */
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  header{background:#000;padding:12px 14px;position:sticky;top:0;z-index:3;border-bottom:1px solid #222}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 10px}
+  h1{margin:0 0 8px;font-size:18px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  select,button,input[type=number]{background:#222;border:1px solid #333;color:var(--text);border-radius:10px;padding:10px 12px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);border-color:#1185f3}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .hint{color:var(--muted);font-size:13px;margin-top:8px}
+  #chart{height:62vh;background:#0d0d0d;border-bottom:1px solid #222}
+  .panel{background:var(--panel);padding:12px;border-top:1px solid #222}
+  .log-title{font-weight:700;margin:0 0 6px}
+  .log-bullets{background:#101010;border:1px solid #222;border-radius:10px;padding:10px;line-height:1.7;max-height:220px;overflow:auto}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;margin-inline-start:6px;background:#1e1e1e;border:1px solid #2a2a2a;color:#cdd3d8}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:.35rem 0}
+  .legend{display:flex;gap:10px;margin-top:10px}
+  .dot{width:12px;height:12px;border-radius:50%}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>شارت مباشر — US30 (ThinkMarkets) | تسجيل ملامسات/اقترابات <span class="tag">EMA 20/25/70</span></h1>
+    <div class="controls">
+      <label>الفريم على الشارت:
+        <select id="tf">
+          <option value="1m">1m</option>
+          <option value="5m">5m</option>
+          <option value="15m" selected>15m</option>
+          <option value="30m">30m</option>
+          <option value="1h">1h</option>
+          <option value="4h">4h</option>
+          <option value="1d">1D</option>
+        </select>
+      </label>
+      <button id="btnEma" class="primary">✨ إظهار/تحديث خطوط EMA</button>
+      <label>هامش اللمس (نقاط):
+        <input id="touchGap" type="number" step="1" value="5" style="width:80px;text-align:center;">
+      </label>
+      <button id="scanNow">تحديث السجل الآن ⟳</button>
+      <button id="liveScan">▶️ بدء الرصد اللحظي</button>
+      <span class="tag" id="symbolTag">ThinkMarkets: US30 (تقريبي من ^DJI)</span>
+    </div>
+    <div class="legend">
+      <span class="row"><span class="dot" style="background:var(--ema20)"></span> EMA 20 (أصفر)</span>
+      <span class="row"><span class="dot" style="background:var(--ema25)"></span> EMA 25 (برتقالي)</span>
+      <span class="row"><span class="dot" style="background:var(--ema70)"></span> EMA 70 (أزرق)</span>
+    </div>
+    <div class="hint">إن لم تظهر بيانات، جرّب تبديل الفريم ثم “إظهار/تحديث خطوط EMA”. المصدر مجاني (Stooq/Yahoo) لتفادي مشاكل CORS.</div>
+  </div>
+</header>
+
+<div id="chart"></div>
+
+<section class="panel wrap">
+  <h3 class="log-title">الـسِجِل — ملامسات/اقترابات EMA (يُحدّث كل 24 ساعة + عند الطلب)</h3>
+  <div id="summary" class="hint">لا توجد سجلات بعد. اضغط “بدء الرصد اللحظي” أو “تحديث السجل الآن”.</div>
+  <div id="log" class="log-bullets"></div>
+</section>
+
+<script>
+/* ============ إعدادات عامّة ============ */
+const SYMBOL = '^DJI'; // يمكنك تغييره لرمز آخر عند توفر مصدر مجاني
+const stooqBase = 'https://stooq.com/q/d/l/?s=DJIA&i='; // DJIA يقابل ^DJI
+const tfMap = { '1m':'1', '5m':'5', '15m':'15', '30m':'30', '1h':'60', '4h':'240', '1d':'d' };
+// ملاحظة: Stooq يوفّر فواصل محدودة (5/15/60 يومية). سنحوّل ما لا يتاح لأقرب متاح.
+function stooqInterval(tf){
+  if(tf==='1m') return '5';
+  if(tf==='30m') return '60';
+  if(tf==='4h') return '60';
+  if(tf==='1d') return 'd';
+  return tfMap[tf] || '15';
+}
+
+/* ============ إنشاء الشارت ============ */
+const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  layout: { background: { color: '#0d0d0d' }, textColor: '#cfd3dc' },
+  grid: { vertLines: { color: '#222', style: 1 }, horzLines: { color: '#222', style: 1 } },
+  rightPriceScale: { borderColor:'#333' },
+  timeScale: { borderColor:'#333', secondsVisible:false, timeVisible:true }
+});
+const candles = chart.addCandlestickSeries({ upColor:'#2ecc71', downColor:'#e74c3c', wickUpColor:'#2ecc71', wickDownColor:'#e74c3c', borderVisible:false });
+
+const ema20Series = chart.addLineSeries({ color:getComputedStyle(document.documentElement).getPropertyValue('--ema20').trim(), lineWidth:3 });
+const ema25Series = chart.addLineSeries({ color:getComputedStyle(document.documentElement).getPropertyValue('--ema25').trim(), lineWidth:3 });
+const ema70Series = chart.addLineSeries({ color:getComputedStyle(document.documentElement).getPropertyValue('--ema70').trim(), lineWidth:4 });
+
+/* ============ أدوات مساعدة ============ */
+function parseStooqCSV(csv){
+  // date,time,open,high,low,close,volume (للفواصل الدقيقة/الساعة)، أو تاريخ يومي
+  const lines = csv.trim().split('\n').slice(1);
+  return lines.map(l=>{
+    const p = l.split(',');
+    const t = (p[1] && p[1] !== '00:00:00') ? (p[0]+'T'+p[1]) : p[0];
+    return { time: Math.floor(new Date(t+'Z').getTime()/1000),
+             open:+p[2], high:+p[3], low:+p[4], close:+p[5] };
+  }).filter(d=>!isNaN(d.time) && isFinite(d.close));
+}
+function ema(data, period){
+  let k = 2/(period+1), res=[], prev;
+  for(let i=0;i<data.length;i++){
+    const price = data[i].close;
+    if(i===0){ prev = price; }
+    else { prev = price*k + prev*(1-k); }
+    res.push({ time:data[i].time, value:+prev.toFixed(2) });
+  }
+  return res;
+}
+function fmt(n){ return (+n).toLocaleString('en-US',{maximumFractionDigits:2}); }
+function nowUTC(){ return new Date().toISOString().replace('T',' ').slice(0,19)+' UTC'; }
+
+/* ============ تحميل بيانات + رسم ============ */
+async function loadAndDraw(tfValue){
+  const interval = stooqInterval(tfValue);
+  const url = interval==='d'
+    ? 'https://stooq.com/q/d/l/?s=DJIA&i=d'
+    : `${stooqBase}${interval}`;
+  const resp = await fetch(url, { cache:'no-store' });
+  const csv = await resp.text();
+  const arr = parseStooqCSV(csv);
+  if(arr.length<10) throw new Error('No data');
+
+  candles.setData(arr);
+
+  const ema20 = ema(arr,20);
+  const ema25 = ema(arr,25);
+  const ema70 = ema(arr,70);
+
+  ema20Series.setData(ema20);
+  ema25Series.setData(ema25);
+  ema70Series.setData(ema70);
+
+  window.__lastData = { tf: tfValue, candles: arr, ema20, ema25, ema70 };
+}
+
+/* ============ تسجيل الاقترابات/الملامسات ============ */
+const logBox = document.getElementById('log');
+const summary = document.getElementById('summary');
+
+function addLogLine({price, which, tf, time}){
+  const li = document.createElement('div');
+  li.innerHTML = `• تم تسجيل اقتراب/لمس عند <b>${fmt(price)}</b> على <b>${which}</b> — فريم <b>${tf}</b> — الوقت <span class="tag">${new Date(time*1000).toISOString().slice(0,19).replace('T',' ')} UTC</span>`;
+  logBox.prepend(li);
+}
+
+function scanTouches(gapPoints){
+  if(!window.__lastData) return;
+  const { candles, ema20, ema25, ema70, tf } = window.__lastData;
+  const last = candles[candles.length-1];
+
+  // نبحث في آخر 100 شمعة لتسجيل أحدث الأحداث
+  const start = Math.max(0, candles.length-100);
+  for(let i=start;i<candles.length;i++){
+    const c = candles[i];
+    const _20 = ema20[i]?.value, _25 = ema25[i]?.value, _70 = ema70[i]?.value;
+    if(!_20 || !_25 || !_70) continue;
+
+    function check(oneVal, name){
+      if(Math.abs(c.close - oneVal) <= gapPoints){
+        addLogLine({ price: c.close, which: name, tf, time: c.time });
+      }
+    }
+    check(_20, 'EMA 20');
+    check(_25, 'EMA 25');
+    check(_70, 'EMA 70');
+  }
+  summary.textContent = `آخر تحديث للسجل: — ${nowUTC()} — يتم التحديث الآلي كل 24 ساعة بالإضافة إلى الرصد اللحظي.`;
+}
+
+/* ============ ربط عناصر التحكم ============ */
+const tfSel = document.getElementById('tf');
+const btnEma = document.getElementById('btnEma');
+const btnScan = document.getElementById('scanNow');
+const btnLive = document.getElementById('liveScan');
+const gapInput = document.getElementById('touchGap');
+
+let liveTimer = null, dailyTimer = null;
+
+async function refreshAll(){
+  btnEma.disabled = true;
+  try{
+    await loadAndDraw(tfSel.value);
+  }catch(e){
+    console.error(e);
+    alert('تعذّر تحميل البيانات. جرّب فريم آخر أو أعد المحاولة.');
+  }finally{
+    btnEma.disabled = false;
+  }
+}
+
+btnEma.addEventListener('click', refreshAll);
+tfSel.addEventListener('change', refreshAll);
+
+btnScan.addEventListener('click', ()=>{
+  scanTouches(parseFloat(gapInput.value||'5'));
+});
+
+btnLive.addEventListener('click', ()=>{
+  if(liveTimer){
+    clearInterval(liveTimer); liveTimer = null;
+    btnLive.textContent = '▶️ بدء الرصد اللحظي';
+    return;
+  }
+  // تحديث كل دقيقة
+  liveTimer = setInterval(async ()=>{
+    await refreshAll();
+    scanTouches(parseFloat(gapInput.value||'5'));
+  }, 60*1000);
+  btnLive.textContent = '⏸ إيقاف الرصد اللحظي';
+});
+
+// تحديث يومي تلقائي
+function startDaily(){
+  if(dailyTimer) clearInterval(dailyTimer);
+  dailyTimer = setInterval(async ()=>{
+    await refreshAll();
+    scanTouches(parseFloat(gapInput.value||'5'));
+  }, 24*60*60*1000);
+}
+
+/* ============ تشغيل أولي ============ */
+(async ()=>{
+  await refreshAll();
+  startDaily();
+})();
+</script>
+</body>
+</html>
