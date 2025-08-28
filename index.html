@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>US30 (ThinkMarkets) — EMA Touch Logger</title>
+  <!-- TradingView widget (لضمان ظهور الشارت حتى لو تعثر جلب البيانات) -->
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <style>
+    :root { --bg:#0b0b0b; --panel:#141414; --txt:#fff; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,Helvetica,sans-serif}
+    header{background:var(--panel);padding:12px 16px;font-weight:700;text-align:center}
+    .wrap{max-width:1200px;margin:0 auto;padding:10px}
+    .topbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;margin:8px 0}
+    select,button{background:#0b6bcb;border:0;color:#fff;padding:8px 12px;border-radius:6px;font-weight:700}
+    button:hover{background:#0d84f2;cursor:pointer}
+    #tv_chart{height:72vh;width:100%;border:1px solid #1f1f1f;border-radius:8px;overflow:hidden}
+    .note{font-size:12px;opacity:.8}
+    .meta{display:flex;gap:10px;justify-content:center;align-items:center;margin:6px 0;font-size:12px;opacity:.85}
+    .err{background:#461b1b;border:1px solid #7c2c2c;color:#ffd7d7;padding:10px;border-radius:6px;margin-top:8px;display:none}
+    .log{background:var(--panel);border-radius:8px;margin-top:12px;padding:10px}
+    .log h3{margin:0 0 8px 0;font-size:16px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:8px;border-bottom:1px solid #222;text-align:right}
+    th{color:#bdbdbd}
+    .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-weight:700}
+    .y{background:#FFD11A;color:#000} /* EMA20 */
+    .o{background:#FF8C1A;color:#000} /* EMA25 */
+    .b{background:#2E6BFF;color:#fff} /* EMA70 */
+  </style>
+</head>
+<body>
+  <header>📊 US30 (ThinkMarkets) — تسجيل ملامسات EMA 20/25/70 لكل الفريمات + شارت مباشر</header>
+
+  <div class="wrap">
+    <div class="topbar">
+      <label>الفريم المعروض في الشارت (TradingView):</label>
+      <select id="tfSelect">
+        <option value="15">15m</option>
+        <option value="30">30m</option>
+        <option value="60" selected>1h</option>
+        <option value="120">2h</option>
+        <option value="240">4h</option>
+        <option value="D">1D</option>
+      </select>
+      <button id="refreshBtn">🔄 تحديث السجل الآن</button>
+      <span class="note">الشارت من TradingView لرمز THINKMARKETS:US30 — السجل يُحتسب من بيانات ^DJI (مع تجاوز CORS عند الحاجة).</span>
+    </div>
+
+    <div id="tv_chart"></div>
+    <div id="errBox" class="err"></div>
+    <div class="meta"><span>آخر تحديث للسجل: <strong id="lastUpdated">—</strong></span> <span>تحديث تلقائي كل 24 ساعة</span></div>
+
+    <div class="log">
+      <h3>السجل — ملامسة السعر لخطوط EMA (15m, 30m, 1h, 2h, 4h, 1D)</h3>
+      <table>
+        <thead>
+          <tr><th>الحدث</th><th>السعر</th><th>الفريم</th><th>الوقت</th></tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+
+    <p class="note">ملاحظة: ممكن تختلف بيانات ^DJI قليلًا عن US30، لذلك التنبيهات النهائية يُفضّل ضبطها في TradingView عبر Webhook كما شرحت لك سابقًا.</p>
+  </div>
+
+  <script>
+    // ====== شارت TradingView لرمز ThinkMarkets:US30 ======
+    let tvWidget;
+    function buildTV(tfCode){
+      // إزالة ويدجت سابق
+      const c = document.getElementById('tv_chart');
+      c.innerHTML = '';
+      tvWidget = new TradingView.widget({
+        autosize: true,
+        symbol: "THINKMARKETS:US30",
+        interval: tfCode, // 15,30,60,120,240,D
+        timezone: "Etc/UTC",
+        theme: "dark",
+        style: "1",
+        locale: "en",
+        toolbar_bg: "#000000",
+        enable_publishing: false,
+        withdateranges: true,
+        hide_side_toolbar: false,
+        container_id: "tv_chart"
+      });
+    }
+
+    const tfSelect = document.getElementById('tfSelect');
+    tfSelect.onchange = () => buildTV(tfSelect.value);
+    buildTV(tfSelect.value);
+
+    // ====== أدوات للسجل (Yahoo + تجاوز CORS عند الحاجة) ======
+    const VIEW_TFS = ['15m','30m','60m','120m','240m','1d'];
+    const TOUCH_MARGIN = 0.001; // 0.1%
+    const seen = new Set();
+
+    const fmtTs = ts => {
+      const d = new Date(ts*1000);
+      const p = n => n.toString().padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const nowLocal = () => {
+      const d = new Date(); const p = n=>n.toString().padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+
+    function ema(arr, len){
+      const k = 2/(len+1), out = []; let prev;
+      for (let i=0;i<arr.length;i++){
+        const v = arr[i]; if (v==null){ out.push(null); continue; }
+        if (prev==null){
+          const start = Math.max(0, i-len+1);
+          const slice = arr.slice(start, i+1).filter(x=>x!=null);
+          if (slice.length < len){ out.push(null); continue; }
+          prev = slice.reduce((a,b)=>a+b,0)/slice.length;
+        }
+        const cur = v*k + prev*(1-k);
+        out.push(cur); prev = cur;
+      }
+      return out;
+    }
+
+    function aggregate(candles, group){
+      const out = [];
+      for (let i=0;i<candles.length;i+=group){
+        const ch = candles.slice(i,i+group);
+        if (ch.length < group) continue;
+        out.push({
+          time: ch[ch.length-1].time,
+          open: ch[0].open,
+          close: ch[ch.length-1].close,
+          high: Math.max(...ch.map(x=>x.high)),
+          low:  Math.min(...ch.map(x=>x.low)),
+        });
+      }
+      return out;
+    }
+
+    async function fetchYahooCore(range, interval){
+      const cb = Math.floor(Date.now()/60000);
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cb}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('Yahoo core failed');
+      const j = await r.json();
+      const res = j.chart.result?.[0];
+      const t = res.timestamp;
+      const q = res.indicators.quote[0];
+      const out = [];
+      for (let i=0;i<t.length;i++){
+        if (q.open[i]==null||q.high[i]==null||q.low[i]==null||q.close[i]==null) continue;
+        out.push({ time:t[i], open:q.open[i], high:q.high[i], low:q.low[i], close:q.close[i] });
+      }
+      return out;
+    }
+
+    async function fetchYahoo(range, interval){
+      try {
+        return await fetchYahooCore(range, interval);
+      } catch (e1) {
+        // محاولة عبر proxy لتجاوز CORS إن لزم
+        try {
+          const cb = Math.floor(Date.now()/60000);
+          const prox = 'https://cors.isomorphic-git.org/';
+          const url = prox + `https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cb}`;
+          const r = await fetch(url);
+          if (!r.ok) throw new Error('Yahoo proxy failed');
+          const j = await r.json();
+          const res = j.chart?.result?.[0];
+          const t = res.timestamp;
+          const q = res.indicators.quote[0];
+          const out = [];
+          for (let i=0;i<t.length;i++){
+            if (q.open[i]==null||q.high[i]==null||q.low[i]==null||q.close[i]==null) continue;
+            out.push({ time:t[i], open:q.open[i], high:q.high[i], low:q.low[i], close:q.close[i] });
+          }
+          return out;
+        } catch(e2){
+          throw e2;
+        }
+      }
+    }
+
+    function showError(msg){
+      const box = document.getElementById('errBox');
+      box.textContent = '⚠️ '+msg;
+      box.style.display = 'block';
+    }
+    function clearError(){
+      const box = document.getElementById('errBox');
+      box.style.display = 'none';
+      box.textContent = '';
+    }
+
+    function addLogRow(type, price, tf, ts){
+      const key = `${type}-${tf}-${ts}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const tr = document.createElement('tr');
+      const cls = type==='EMA20' ? 'y' : (type==='EMA25' ? 'o' : 'b');
+      tr.innerHTML = `<td><span class="badge ${cls}">${type}</span> لمس</td>
+                      <td>${Number(price).toFixed(2)}</td>
+                      <td>${tf}</td>
+                      <td>${fmtTs(ts)}</td>`;
+      document.getElementById('logBody').prepend(tr);
+    }
+
+    function checkTouch(k, emaVal, type, tf){
+      if (!emaVal) return;
+      const margin = k.close * 0.001; // 0.1%
+      if ((k.low - margin) <= emaVal && emaVal <= (k.high + margin)){
+        addLogRow(type, k.close, tf, k.time);
+      }
+    }
+
+    async function processTF(tf){
+      let candles;
+      if (tf==='15m')      candles = await fetchYahoo('5d','15m');
+      else if (tf==='30m') candles = await fetchYahoo('5d','30m');
+      else if (tf==='60m') candles = await fetchYahoo('1mo','60m');
+      else if (tf==='120m'){ const base = await fetchYahoo('1mo','30m'); candles = aggregate(base,4); }
+      else if (tf==='240m'){ const base = await fetchYahoo('3mo','30m'); candles = aggregate(base,8); }
+      else if (tf==='1d')  candles = await fetchYahoo('6mo','1d');
+
+      const closes = candles.map(k=>k.close);
+      const e20 = ema(closes,20), e25 = ema(closes,25), e70 = ema(closes,70);
+      for (let i=0;i<candles.length;i++){
+        const k = candles[i];
+        checkTouch(k, e20[i], 'EMA20', tf);
+        checkTouch(k, e25[i], 'EMA25', tf);
+        checkTouch(k, e70[i], 'EMA70', tf);
+      }
+    }
+
+    async function runAll(){
+      try{
+        clearError();
+        for (const tf of ['15m','30m','60m','120m','240m','1d']){
+          await processTF(tf);
+        }
+        document.getElementById('lastUpdated').textContent = nowLocal();
+      }catch(err){
+        showError('تعذر تحميل بيانات السجل (Yahoo). جرّب إعادة التحميل أو افتح عبر Wi-Fi مختلف. التفاصيل: '+String(err));
+      }
+    }
+
+    document.getElementById('refreshBtn').onclick = runAll;
+    runAll();                     // تشغيل أول
+    setInterval(runAll, 86400000); // كل 24 ساعة
+  </script>
+</body>
+</html>
