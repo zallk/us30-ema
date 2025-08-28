@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>US30 (ThinkMarkets) — شارت + تسجيل لحظي لملامسات EMA 20/25/70</title>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <style>
+    :root { --bg:#0b0b0b; --panel:#141414; --txt:#fff; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,Arial;direction:rtl}
+    header{background:#000;padding:12px 16px;text-align:center;font-weight:700}
+    .wrap{max-width:1200px;margin:0 auto;padding:12px}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;margin:10px 0}
+    select,button,input[type=number]{background:#0b6bcb;border:0;color:#fff;padding:8px 12px;border-radius:8px;font-weight:700}
+    select{min-width:90px}
+    button:hover{background:#0d84f2;cursor:pointer}
+    input[type=number]{background:#333}
+    .chip{background:#1f1f1f;padding:6px 10px;border-radius:8px}
+    #tv_chart{height:68vh;width:100%;border:1px solid #1e1e1e;border-radius:10px;overflow:hidden;position:relative}
+    .note{font-size:12px;opacity:.85;margin-top:6px;text-align:center}
+    .err{display:none;background:#4c1d1d;border:1px solid #7c2c2c;color:#ffd7d7;padding:10px;border-radius:8px;margin-top:10px}
+    .log{background:var(--panel);border-radius:10px;margin-top:14px;padding:12px}
+    .log h3{margin:0 0 8px 0;font-size:16px}
+    ul#sentences{margin:8px 0 0 0; padding:0 18px; line-height:1.8}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+    th,td{padding:8px;border-bottom:1px solid #222;text-align:right}
+    th{color:#bdbdbd}
+    .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-weight:700}
+    .y{background:#FFD11A;color:#000} .o{background:#FF8C1A;color:#000} .b{background:#2E6BFF;color:#fff}
+    a, a:visited { color: #9bccff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>📊 US30 (ThinkMarkets) — شارت مباشر + تسجيل لحظي لملامسات EMA 20/25/70</header>
+
+  <div class="wrap">
+    <div class="controls">
+      <span class="chip">الفريم على الشارت:</span>
+      <select id="tfSelect">
+        <option value="15">15m</option>
+        <option value="30">30m</option>
+        <option value="60">1h</option>
+        <option value="120">2h</option>
+        <option value="240" selected>4h</option>
+        <option value="D">1D</option>
+      </select>
+
+      <button id="forceEma">✨ إظهار/تحديث خطوط EMA</button>
+
+      <span class="chip">هامش اللمس:</span>
+      <label class="chip">+% <input id="posMargin" type="number" step="0.01" value="0.10" style="width:70px;margin-inline-start:6px"></label>
+      <label class="chip">-% <input id="negMargin" type="number" step="0.01" value="0.10" style="width:70px;margin-inline-start:6px"></label>
+
+      <span class="chip">فحص لحظي كل (دقائق):</span>
+      <input id="pollMins" type="number" min="1" step="1" value="1" style="width:70px">
+
+      <button id="toggleLive">▶️ بدء الرصد اللحظي</button>
+      <button id="refreshLog">🔄 تحديث السجل الآن</button>
+    </div>
+
+    <div class="note">الشارت يعرض <b>THINKMARKETS:US30</b> مباشرة. السجل يُستخدم فيه مصدر مجاني <b>Yahoo (^DJI)</b> كنسخة بديلة لتجميع الفريمات. إن ظهر تأخير/خطأ شبكة فهذا طبيعي أحيانًا مع CORS/الكاش.</div>
+    <div id="tv_chart"></div>
+
+    <div id="errBox" class="err"></div>
+    <div class="note">⏱ آخر تحديث للسجل: <b id="lastUpdated">—</b> • يتم التحديث الآلي كل 24 ساعة بالإضافة إلى الرصد اللحظي.</div>
+
+    <div class="log">
+      <h3>📑 الجُمَل — تسجيل لحظي لملامسات EMA</h3>
+      <ul id="sentences"><li>— لا توجد سجلات بعد. اضغط "بدء الرصد اللحظي" أو "تحديث السجل الآن".</li></ul>
+
+      <h3 style="margin-top:14px">📋 جدول تفصيلي</h3>
+      <table>
+        <thead><tr><th>الحدث</th><th>السعر</th><th>الفريم</th><th>الوقت (UTC)</th></tr></thead>
+        <tbody id="logBody"><tr><td colspan="4">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // ================== TradingView Widget + حقن EMA ==================
+    let tvWidget, chart, emaStudyIds = [];
+    const EMA_STUDY = 'Moving Average Exponential';
+
+    function addEMAsTV(tries=0){
+      if(!chart) return;
+      try{ (emaStudyIds||[]).forEach(id => chart.removeEntity(id)); }catch(e){}
+      emaStudyIds = [];
+      try{
+        const id20 = chart.createStudy(EMA_STUDY, false, false, [20], null, {'Plot.color':'#FFD11A','Plot.linewidth':2}); // أصفر
+        const id25 = chart.createStudy(EMA_STUDY, false, false, [25], null, {'Plot.color':'#FF8C1A','Plot.linewidth':2}); // برتقالي
+        const id70 = chart.createStudy(EMA_STUDY, false, false, [70], null, {'Plot.color':'#2E6BFF','Plot.linewidth':3}); // أزرق
+        emaStudyIds = [id20,id25,id70];
+      }catch(err){
+        // أحياناً الودجت يحتاج وقت… نجرب عدة مرات
+        if(tries<6) setTimeout(()=>addEMAsTV(tries+1), 450);
+      }
+    }
+
+    function buildTV(tf){
+      document.getElementById('tv_chart').innerHTML = '';
+      tvWidget = new TradingView.widget({
+        autosize:true, symbol:"THINKMARKETS:US30", interval:tf,
+        timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
+        withdateranges:true, hide_side_toolbar:false, enable_publishing:false,
+        container_id:"tv_chart"
+      });
+      tvWidget.onChartReady(()=>{
+        chart = tvWidget.chart();
+        addEMAsTV();
+        chart.onIntervalChanged().subscribe(null,()=>addEMAsTV());
+        chart.onSymbolChanged().subscribe(null,()=>addEMAsTV());
+      });
+    }
+
+    const tfSelect = document.getElementById('tfSelect');
+    tfSelect.onchange = ()=> buildTV(tfSelect.value);
+    document.getElementById('forceEma').onclick = ()=> addEMAsTV();
+    buildTV(tfSelect.value);
+
+    // ================== أدوات السجل: حساب EMA + جلب بيانات ==================
+    const fmt = n => Number(n).toFixed(2);
+    const tfAr = tf => ({'15m':'15 دقيقة','30m':'30 دقيقة','60m':'1 ساعة','120m':'2 ساعة','240m':'4 ساعة','1d':'1 يوم'}[tf]||tf);
+    const tsFmt = ts => { const d=new Date(ts*1000), p=n=>n.toString().padStart(2,'0'); return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`; };
+    const nowLocal = ()=>{ const d=new Date(), p=n=>n.toString().padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+    function ema(arr,len){
+      const k=2/(len+1), out=[]; let prev=null;
+      for(let i=0;i<arr.length;i++){
+        const v=arr[i]; if(v==null){ out.push(null); continue; }
+        if(prev==null){
+          const s=Math.max(0,i-len+1), slice=arr.slice(s,i+1).filter(x=>x!=null);
+          if(slice.length<len){ out.push(null); continue; }
+          prev = slice.reduce((a,b)=>a+b,0)/slice.length;
+        }
+        const cur = v*k + prev*(1-k); out.push(cur); prev=cur;
+      }
+      return out;
+    }
+
+    // Yahoo fetch مع 3 محاولات (مباشر + CORS بديلين)
+    async function fetchYahooTry(url){
+      const r = await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status);
+      const j = await r.json();
+      const res = j.chart?.result?.[0];
+      const t = res.timestamp, q = res.indicators.quote[0];
+      const out=[]; for(let i=0;i<t.length;i++){
+        if(q.open[i]==null||q.high[i]==null||q.low[i]==null||q.close[i]==null) continue;
+        out.push({ time:t[i], open:q.open[i], high:q.high[i], low:q.low[i], close:q.close[i] });
+      }
+      return out;
+    }
+    async function fetchYahoo(range, interval){
+      const cb = Math.floor(Date.now()/60000);
+      const urls = [
+        `https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cb}`,
+        `https://cors.isomorphic-git.org/https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cb}`,
+        `https://r.jina.ai/http://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=${range}&interval=${interval}&cb=${cb}`
+      ];
+      let err;
+      for(const u of urls){ try{ return await fetchYahooTry(u); }catch(e){ err=e; } }
+      throw err || new Error('Load failed');
+    }
+
+    function aggregate(c, g){
+      const out=[]; for(let i=0;i<c.length;i+=g){
+        const ch=c.slice(i,i+g); if(ch.length<g) continue;
+        out.push({ time: ch[ch.length-1].time, open: ch[0].open,
+                   close: ch[ch.length-1].close,
+                   high: Math.max(...ch.map(x=>x.high)),
+                   low:  Math.min(...ch.map(x=>x.low)) });
+      } return out;
+    }
+
+    async function getCandlesFor(tf){
+      if (tf==='15m') return await fetchYahoo('5d','15m');
+      if (tf==='30m') return await fetchYahoo('5d','30m');
+      if (tf==='60m') return await fetchYahoo('1mo','60m');
+      if (tf==='120m'){ const base=await fetchYahoo('1mo','30m'); return aggregate(base,4); }
+      if (tf==='240m'){ const base=await fetchYahoo('3mo','30m'); return aggregate(base,8); }
+      if (tf==='1d') return await fetchYahoo('6mo','1d');
+      return [];
+    }
+
+    function posMargin(){ return Math.max(0, Number(document.getElementById('posMargin').value||0)) / 100; }
+    function negMargin(){ return Math.max(0, Number(document.getElementById('negMargin').value||0)) / 100; }
+    function touchedBand(close, emaVal){
+      const up=emaVal*(1+posMargin()); const dn=emaVal*(1-negMargin());
+      return close>=dn && close<=up; // “خليه فوق شوي” = سماح بهامش أعلى/أسفل
+    }
+
+    // ================== عرض السجل ==================
+    const seen = new Set();
+    function pushSentence(emaLen, price, tf, ts){
+      const ul = document.getElementById('sentences');
+      if(ul.children.length===1 && ul.children[0].textContent.startsWith('—')) ul.innerHTML='';
+      const li = document.createElement('li');
+      li.textContent = `تم ملامسة سعر ${fmt(price)} عند EMA ${emaLen} على فريم ${tfAr(tf)} — ${tsFmt(ts)} UTC`;
+      ul.prepend(li);
+    }
+    function pushRow(type, price, tf, ts){
+      const tbody=document.getElementById('logBody');
+      if(tbody.children.length===1 && tbody.children[0].children.length===1) tbody.innerHTML='';
+      const cls = type==='EMA20'?'y':(type==='EMA25'?'o':'b');
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td><span class="badge ${cls}">${type}</span> — تلامس/قرب</td>
+                      <td>${fmt(price)}</td><td>${tfAr(tf)}</td><td>${tsFmt(ts)}</td>`;
+      tbody.prepend(tr);
+    }
+    function recordTouch(emaLen, price, tf, ts){
+      const key=`${tf}-${emaLen}-${ts}`; if(seen.has(key)) return; seen.add(key);
+      pushSentence(emaLen, price, tf, ts); pushRow(`EMA${emaLen}`, price, tf, ts);
+    }
+
+    function showError(msg){ const box=document.getElementById('errBox'); box.textContent='⚠️ '+msg; box.style.display='block'; }
+    function clearError(){ const box=document.getElementById('errBox'); box.textContent=''; box.style.display='none'; }
+
+    function scanTouches(candles, tf){
+      const closes = candles.map(k=>k.close);
+      const e20 = ema(closes,20), e25 = ema(closes,25), e70 = ema(closes,70);
+      const i = candles.length - 1; if(i<0) return;
+      const c = candles[i];
+      if(e20[i]!=null && touchedBand(c.close, e20[i])) recordTouch(20, c.close, tf, c.time);
+      if(e25[i]!=null && touchedBand(c.close, e25[i])) recordTouch(25, c.close, tf, c.time);
+      if(e70[i]!=null && touchedBand(c.close, e70[i])) recordTouch(70, c.close, tf, c.time);
+    }
+
+    async function runAllOnce(){
+      try{
+        clearError();
+        const tfs = ['15m','30m','60m','120m','240m','1d'];
+        for(const tf of tfs){ const data = await getCandlesFor(tf); scanTouches(data, tf); }
+        document.getElementById('lastUpdated').textContent = nowLocal();
+      }catch(err){
+        showError('تعذّر تحميل بيانات السجل (Yahoo/CORS). الشارت يعمل طبيعي. جرّب Wi-Fi مختلف. التفاصيل: '+String(err));
+      }
+    }
+
+    document.getElementById('refreshLog').onclick = runAllOnce;
+    runAllOnce();
+    setInterval(runAllOnce, 24*60*60*1000); // كل 24 ساعة
+
+    // رصد لحظي
+    let liveTimer=null;
+    function startLive(){
+      if(liveTimer) return;
+      const mins = Math.max(1, Number(document.getElementById('pollMins').value||1));
+      liveTimer = setInterval(runAllOnce, mins*60*1000);
+      document.getElementById('toggleLive').textContent = '⏸️ إيقاف الرصد اللحظي';
+      runAllOnce();
+    }
+    function stopLive(){ if(liveTimer){ clearInterval(liveTimer); liveTimer=null; } document.getElementById('toggleLive').textContent = '▶️ بدء الرصد اللحظي'; }
+    document.getElementById('toggleLive').onclick = ()=> liveTimer ? stopLive() : startLive();
+  </script>
+</body>
+</html>
