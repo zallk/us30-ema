@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>US30 (ThinkMarkets) — EMA 20/25/70</title>
+  <meta name="theme-color" content="#000000">
+  <style>
+    :root{
+      --bg:#0b0b0b; --panel:#141414; --txt:#eaeaea; --muted:#b9b9b9;
+      --yellow:#FFD400; --orange:#FF8A00; --blue:#2E6BFF;
+    }
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    header{background:#000;padding:12px 16px;border-bottom:1px solid #222;position:sticky;top:0;z-index:5}
+    h1{margin:0;font-size:18px}
+    small{color:var(--muted)}
+    .wrap{max-width:1100px;margin:0 auto;padding:10px}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+    .controls button,.controls select{
+      background:#1c1c1c;color:var(--txt);border:1px solid #2b2b2b;border-radius:10px;
+      padding:10px 14px;font-size:14px;cursor:pointer
+    }
+    .controls button:hover{background:#262626}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:#101010;border:1px solid #222;border-radius:8px;font-size:12px;color:var(--muted)}
+    .chart{height:70vh;min-height:520px;border:1px solid #222;border-radius:12px;overflow:hidden;background:#0b0b0b}
+    .legend{display:flex;gap:12px;align-items:center;margin:10px 2px 0}
+    .dot{width:12px;height:3px;border-radius:2px;display:inline-block}
+    .dot.y{background:var(--yellow)}
+    .dot.o{background:var(--orange)}
+    .dot.b{background:var(--blue)}
+    .note{color:var(--muted);font-size:12px;margin-top:6px}
+  </style>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+</head>
+<body>
+  <header>
+    <h1>📈 US30 (ThinkMarkets) — خطوط EMA 20/25/70 <small>لون 20 أصفر / 25 برتقالي / 70 أزرق</small></h1>
+  </header>
+
+  <div class="wrap">
+    <div class="controls">
+      <span class="badge">الرمز: <b>THINKMARKETS:US30</b></span>
+      <select id="frame">
+        <option value="1"  >1m</option>
+        <option value="5"  >5m</option>
+        <option value="15" selected>15m</option>
+        <option value="30" >30m</option>
+        <option value="60" >1h</option>
+        <option value="120">2h</option>
+        <option value="240">4h</option>
+        <option value="1D" >1D</option>
+      </select>
+      <button id="applyEma">✨ إظهار/تحديث خطوط EMA</button>
+      <button id="reset">إعادة ضبط</button>
+    </div>
+
+    <div class="legend">
+      <span><i class="dot y"></i> EMA 20</span>
+      <span><i class="dot o"></i> EMA 25</span>
+      <span><i class="dot b"></i> EMA 70</span>
+    </div>
+
+    <div id="tv" class="chart"></div>
+    <div class="note">ملاحظة: يتم رسم خطوط الـEMA داخل الشارت نفسه عبر TradingView. إن تغيّر الفريم من القائمة أعلاه، يمكنك الضغط على زر
+      <b>إظهار/تحديث خطوط EMA</b> لإعادة تلوين/إضافة المؤشرات.</div>
+  </div>
+
+<script>
+(function () {
+  // تهيئة الشارت
+  const widget = new TradingView.widget({
+    autosize: true,
+    symbol: "THINKMARKETS:US30",
+    interval: "15",
+    timezone: "Etc/UTC",
+    theme: "dark",
+    style: "1",
+    locale: "ar_AE",
+    hide_legend: false,
+    enable_publishing: false,
+    allow_symbol_change: false,
+    container_id: "tv",
+    studies: [],         // سنضيف الـ EMA لاحقًا برمجيًا
+    toolbar_bg: "#0b0b0b",
+  });
+
+  const EMA_CONFIGS = [
+    { length: 20, color: "#FFD400", width: 2 },
+    { length: 25, color: "#FF8A00", width: 2 },
+    { length: 70, color: "#2E6BFF", width: 3 }
+  ];
+
+  // نحتفظ بمعرّفات الدراسات لنقدر نحذف/نحدّث
+  let studyIds = [];
+
+  function applyEMAs() {
+    widget.onChartReady(() => {
+      const chart = widget.chart();
+      // احذف أي EMA قديم
+      studyIds.forEach(id => { try { chart.removeEntity(id); } catch(e){} });
+      studyIds = [];
+
+      // أضف EMA 20/25/70 بالألوان المطلوبة
+      EMA_CONFIGS.forEach(cfg => {
+        const id = chart.createStudy(
+          "Moving Average Exponential",      // اسم الدراسة داخل TradingView
+          false,                             // overlay
+          false,                             // inputs from pane
+          [cfg.length],                      // inputs => [length]
+          null,                              // inputs/outputs map
+          {                                  // تلوين وتخانة الخط
+            "Plot.color": cfg.color,
+            "Plot.linewidth": cfg.width
+          }
+        );
+        studyIds.push(id);
+      });
+    });
+  }
+
+  function setResolution(res) {
+    widget.onChartReady(() => {
+      widget.chart().setResolution(res, () => {});
+    });
+  }
+
+  // الأحداث
+  document.getElementById("applyEma").addEventListener("click", applyEMAs);
+  document.getElementById("reset").addEventListener("click", () => {
+    widget.onChartReady(() => {
+      const chart = widget.chart();
+      studyIds.forEach(id => { try { chart.removeEntity(id); } catch(e){} });
+      studyIds = [];
+      applyEMAs();
+    });
+  });
+  document.getElementById("frame").addEventListener("change", (e) => {
+    const v = e.target.value;
+    // TradingView يقبل: 1, 5, 15, 30, 60, 120, 240, "1D"
+    setResolution(v);
+    // بعد تغيير الفريم، أعد تطبيق الـEMA لضمان الألوان
+    setTimeout(applyEMAs, 400);
+  });
+
+  // عند أول تحميل
+  applyEMAs();
+})();
+</script>
+</body>
+</html>
