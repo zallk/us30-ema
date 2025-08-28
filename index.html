@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>EMA 20/25/70 — US30 (ThinkMarkets) | شارت TradingView</title>
+
+<style>
+  :root{--bg:#0b0b0b;--panel:#141414;--text:#eaeaea;--muted:#9aa0a6;
+        --y:#ffd21e;--o:#ff9a1e;--b:#4b83ff}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Arial}
+  header{position:sticky;top:0;z-index:2;background:#000;border-bottom:1px solid #111}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px}
+  h1{font-size:18px;margin:0 0 4px}
+  .hint{color:var(--muted);font-size:12px}
+  .card{background:var(--panel);border:1px solid #1f1f1f;border-radius:14px;padding:12px;margin:12px auto}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+  .y{background:var(--y)} .o{background:var(--o)} .b{background:var(--b)}
+  #tvwrap{height:78vh}
+  @media(min-width:760px){ #tvwrap{height:82vh} }
+  button{background:#0d84f2;border:none;color:white;border-radius:10px;padding:10px 14px;cursor:pointer}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style>
+
+<!-- TradingView Advanced Chart -->
+<script src="https://s3.tradingview.com/tv.js"></script>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>شارت — US30 (ThinkMarkets) + EMA 20/25/70</h1>
+    <div class="hint">في حال لم تُطبّق الألوان تلقائيًا، افتح Indicators داخل الشارت وعدّل ألوان EMA يدويًا (20 أصفر، 25 برتقالي، 70 أزرق).</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="card">
+    <div class="legend">
+      <span><span class="dot y"></span> EMA 20 (أصفر)</span>
+      <span><span class="dot o"></span> EMA 25 (برتقالي)</span>
+      <span><span class="dot b"></span> EMA 70 (أزرق)</span>
+    </div>
+    <div id="tvwrap">
+      <div id="tv_chart_container" style="height:100%"></div>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <div class="hint">الرمز: <b>THINKMARKETS:US30</b> — يمكنك تغيير الفريم من شريط TradingView.</div>
+      <button id="reloadBtn" title="إعادة تحميل الشارت">إعادة تحميل 🔄</button>
+    </div>
+  </div>
+</main>
+
+<script>
+/* تهيئة TradingView Advanced Chart مع 3 EMA */
+function loadTV(){
+  // امسح وابدأ من جديد
+  const holder = document.getElementById('tv_chart_container');
+  holder.innerHTML = '';
+  // إنشاء الودجت
+  new TradingView.widget({
+    autosize: true,
+    container_id: "tv_chart_container",
+    symbol: "THINKMARKETS:US30",
+    interval: "15",
+    timezone: "Etc/UTC",
+    theme: "dark",
+    style: "1",
+    locale: "ar",
+    toolbar_bg: "#141414",
+    enable_publishing: false,
+    allow_symbol_change: true,
+    calendar: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    withdateranges: true,
+    studies: [
+      { id: "Moving Average Exponential@tv-basicstudies", inputs: { length: 20 } },
+      { id: "Moving Average Exponential@tv-basicstudies", inputs: { length: 25 } },
+      { id: "Moving Average Exponential@tv-basicstudies", inputs: { length: 70 } }
+    ],
+    // نحاول تلوين كل نسخة من EMA (قد لا يعمل في كل البيئات)
+    studies_overrides: {
+      "Moving Average Exponential@tv-basicstudies.1.plot.color": "#ffd21e",
+      "Moving Average Exponential@tv-basicstudies.2.plot.color": "#ff9a1e",
+      "Moving Average Exponential@tv-basicstudies.3.plot.color": "#4b83ff",
+      // سماكات
+      "Moving Average Exponential@tv-basicstudies.1.linewidth": 2,
+      "Moving Average Exponential@tv-basicstudies.2.linewidth": 2,
+      "Moving Average Exponential@tv-basicstudies.3.linewidth": 3
+    }
+  });
+}
+
+// زر إعادة التحميل
+document.getElementById('reloadBtn').addEventListener('click', loadTV);
+
+// بدء
+loadTV();
+</script>
+</body>
+</html>
