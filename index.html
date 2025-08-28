@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>US30 (ThinkMarkets) — شارت + EMA 20/25/70</title>
+  <style>
+    :root{
+      --bg:#0b0b0b; --panel:#141414; --text:#eaeaea;
+      --yellow:#FFD400; --orange:#FF8C00; --blue:#1E90FF;
+      --muted:#9aa0a6;
+    }
+    html,body{height:100%;margin:0;background:#000;color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1200px;margin:0 auto;padding:14px}
+    .card{background:var(--panel);border-radius:12px;padding:12px}
+    h1{font-size:18px;margin:0 0 8px}
+    .hint{color:var(--muted);font-size:13px;line-height:1.6}
+    .badges{display:flex;gap:10px;flex-wrap:wrap;margin:.5rem 0 1rem}
+    .badge{display:inline-flex;align-items:center;gap:8px;background:#111;padding:6px 10px;border-radius:999px;font-size:13px;border:1px solid #222}
+    .swatch{width:12px;height:12px;border-radius:50%}
+    .swatch.yellow{background:var(--yellow)}
+    .swatch.orange{background:var(--orange)}
+    .swatch.blue{background:var(--blue)}
+    #tvwrap{height:70vh;min-height:520px;border-radius:10px;overflow:hidden}
+    .log{margin-top:14px}
+    .log h2{font-size:16px;margin:0 0 8px}
+    .log pre{background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:10px;white-space:pre-wrap;font-size:13px;min-height:80px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+    .btn{background:#1f6feb;border:none;border-radius:8px;color:#fff;padding:8px 12px;font-size:14px;cursor:pointer}
+    .btn.secondary{background:#2d2d2d}
+  </style>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>US30 (ThinkMarkets) + EMA 20/25/70</h1>
+      <p class="hint">إذا لم تُطبّق المؤشرات تلقائيًا بسبب قيود الودجت، افتح زر <b>Indicators</b> داخل الشارت وأضف “Moving Average Exponential” بثلاث نسخ: 20 (أصفر)، 25 (برتقالي)، 70 (أزرق).</p>
+      <div class="badges">
+        <span class="badge"><span class="swatch yellow"></span>EMA 20 (أصفر)</span>
+        <span class="badge"><span class="swatch orange"></span>EMA 25 (برتقالي)</span>
+        <span class="badge"><span class="swatch blue"></span>EMA 70 (أزرق)</span>
+      </div>
+      <div id="tvwrap"></div>
+
+      <div class="toolbar">
+        <button id="applyEma" class="btn">✨ محاولة إضافة/تحديث EMA تلقائيًا</button>
+        <button id="openIndicators" class="btn secondary">فتح مؤشرات الشارت</button>
+      </div>
+
+      <div class="log">
+        <h2>سجلّ الملامسات (تجريبي — يتطلّب خادِم للقراءة الآلية)</h2>
+        <p class="hint">التسجيل الآلي “قبل EMA بـ 5 نقاط” يحتاج قراءة بيانات الشموع والـ EMA لحظياً، وهو غير مُتاح من داخل الودجت مباشرة. سنربطه لاحقًا ببوت تيليجرام/خادِم صغير ليعمل تلقائيًا.</p>
+        <pre id="touchLog">لا توجد مدخلات بعد.</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // تهيئة الشارت من TradingView
+    let tvWidget, chart;
+
+    function makeWidget() {
+      tvWidget = new TradingView.widget({
+        symbol: "THINKMARKETS:US30",
+        interval: "15",
+        autosize: true,
+        container_id: "tvwrap",
+        theme: "dark",
+        style: "1",
+        locale: "ar",
+        hide_legend: false,
+        hide_side_toolbar: false,
+        allow_symbol_change: false,
+        studies: [], // سنحاول إضافتها برمجيًا لاحقًا
+        toolbar_bg: "#111",
+        withdateranges: true
+      });
+
+      tvWidget.onChartReady(() => {
+        chart = tvWidget.chart();
+
+        // زر يفتح نافذة المؤشرات للمستخدم (حل يدوي سريع إن فشلت الإضافة البرمجية)
+        document.getElementById('openIndicators').onclick = () => {
+          try { tvWidget.executeActionById("insertIndicator"); } catch(e){}
+        };
+
+        // نحاول إضافة EMA تلقائيًا
+        document.getElementById('applyEma').onclick = addEmaStudies;
+        // جرّب مباشرة عند التحميل
+        addEmaStudies();
+      });
+    }
+
+    function addEmaStudies() {
+      if (!chart) return;
+      const colors = {
+        20: "#FFD400", // أصفر
+        25: "#FF8C00", // برتقالي
+        70: "#1E90FF"  // أزرق
+      };
+
+      // بعض البيئات لا تسمح createStudy للأسماء القديمة. سنحاول معرفتين شائعتين.
+      const tryCreate = (len) => {
+        const variants = [
+          "Moving Average Exponential@tv-basicstudies",
+          "Moving Average Exponential"
+        ];
+        (async () => {
+          for (const id of variants) {
+            try {
+              const sid = chart.createStudy(id, false, false, [len]);
+              // تلوين — قد لا يعمل على كل البيئات، لذلك هو “best effort”
+              try {
+                chart.applyOverrides({
+                  [`paneProperties.legendProperties.showStudyArguments`]: true
+                });
+              } catch(e){}
+              console.log("EMA added", len, id, sid);
+              break;
+            } catch(e) {
+              // جرّب التالي
+            }
+          }
+        })();
+      };
+
+      [20,25,70].forEach(tryCreate);
+
+      // ملاحظة للمستخدم
+      const log = document.getElementById('touchLog');
+      log.textContent = "تمت محاولة إضافة EMA 20/25/70 تلقائيًا. إذا لم تظهر، افتح المؤشرات من الزر أعلاه وأضفها يدويًا.";
+    }
+
+    makeWidget();
+  </script>
+</body>
+</html>
